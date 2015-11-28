@@ -31,9 +31,10 @@ function logTemp(interval) {
     setInterval(readTemp, interval, insertTemp);
 };
 function insertTemp(data) {
+    console.log('insert');
     var statement = db.prepare("INSERT INTO TempHumid VALUES (?, ?, ?, ?)");
     // Insert values into prepared statement
-    statement.run(data.tempC, data.tempF, data.tempC, data.unix_time);
+    statement.run(data.TempHumid.tempC, data.TempHumid.tempF, data.TempHumid.humidity, data.TempHumid.unix_time);
     // Execute the statement
     statement.finalize();
 }
@@ -71,14 +72,13 @@ function resetDB(vegDaysCurrent) {
         tr.run("DELETE FROM LightCycle;");
         date = new Date();
         date = date.setDate(date.getDate() - vegDaysCurrent);
-       tr.run("INSERT INTO LightCycle VALUES (30, " + vegDaysCurrent + ", 30, 0," + date + ");")
+        tr.run("INSERT INTO LightCycle VALUES (30, " + vegDaysCurrent + ", 30, 0," + date + ");")
         tr.commit(function (err) {
             if (err) return console.log("Sad panda :-( commit() failed.", err);
             console.log("Reset LightCycle Table");
         });
     });
 }
-
 // Get temperature records from database
 function selectTemp(num_records, start_date, callback){
     // - Num records is an SQL filter from latest record back trough time series, 
@@ -107,7 +107,6 @@ function lastTempHumid(callback) {
         data = {
             TempHumid: rows
         }
-        //console.log(data);
         callback(data);
     }); 
 }
@@ -186,7 +185,12 @@ var server = http.createServer(
 	        }
 	        // Test to see if it's a request for current temperature   
 	        if (pathfile == '/temperature_now.json') {
-	            readTemp(function (data) {
+	            //
+	            //getPlotData(data, function (data) {
+	            //    response.writeHead(200, { "Content-type": "application/json" });
+	            //    response.end(JSON.stringify(data), "ascii");
+	            //});
+	            lastTempHumid(function (data) {
 	                readLightCycle(data, function (data) {
 	                    response.writeHead(200, { "Content-type": "application/json" });
 	                    response.end(JSON.stringify(data), "ascii");
