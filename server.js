@@ -1,4 +1,5 @@
-
+//Python
+var PythonShell = require('python-shell');
 
 //SQL
 var sqlite3 = require('sqlite3');
@@ -11,43 +12,51 @@ var db = new TransactionDatabase(
 // Use node-static module to server chart for client-side dynamic graph
 var nodestatic = require('node-static');
 
-//socketIO
-var connect = require('connect')
-var dir = __dirname;
-
-var io = require('socket.io').listen(connect);
-
 // Setup static server for current directory
 var staticServer = new nodestatic.Server(".");
 
-//serial 
-var com = require("serialport");
-var serialPort = new com.SerialPort("/dev/ttyACM0", {
-    baudrate: 9600,
-    parser: com.parsers.readline('\r\n')
-  });
-serialPort.on('open',function() {
-  console.log('Port open');
-});
-serialPort.on('data', function(data) {
-    var dataArray = data.split(",");
-    var tempC = dataArray[1];
-    var tempF = dataArray[2];
-    var humidity = dataArray[0];
-    var date = Date.now();
-    // Add date/time to temperature
+
+////////DHTSensor/////////
+var sensor = 11;
+var DHTPin = 23;
+var options = {
+    args: [sensor, DHTPin]
+};
+
+// Create a wrapper function which we'll use specifically for logging
+function logTemp(interval) {
+    // Call the readTemp function with the insertTemp function as output to get initial reading
+    readTemp(insertTemp);
+    // Set the repeat interval (milliseconds). Third argument is passed as callback function to first (i.e. readTemp(insertTemp)).
+    setInterval(readTemp, interval, insertTemp);
+};
+function insertTemp(data) {
+    console.log('insert');
     var statement = db.prepare("INSERT INTO TempHumid VALUES (?, ?, ?, ?)");
     // Insert values into prepared statement
-    statement.run(tempC, tempF, tempC, date);
-});
-// Write a single temperature record in JSON format to database table.
-function insertTemp(data){
-	// data is a javascript object  
-	var statement = db.prepare("INSERT INTO TempHumid VALUES (?, ?, ?, ?)");
-	// Insert values into prepared statement
-	statement.run(data.TempHumid[0].tempC, data.TempHumid[0].tempF, data.TempHumid[0].tempC, data.TempHumid[0].unix_time);
-	// Execute the statement
-	statement.finalize();
+    statement.run(data.TempHumid.tempC, data.TempHumid.tempF, data.TempHumid.humidity, data.TempHumid.unix_time);
+    // Execute the statement
+    statement.finalize();
+}
+// Read current temperature from sensor
+function readTemp(callback) {
+    var unix_time = Date.now();
+    var results = PythonShell.run('./sensors/Adafruit_DHT/scripts/AdafruitDHT.py', options, function (err, results) {
+        if (err) throw err;
+        // results is an array consisting of messages collected during execution
+        if (results) {
+            var data = {
+                TempHumid: {
+                    humidity: parseInt(results[0]),
+                    tempC: parseInt(results[1]),
+                    tempF: parseInt(results[2]),
+                    unix_time: unix_time
+                }
+            }
+            console.log(data);
+        }
+        callback(data);
+    });
 }
 // Write a single temperature record in JSON format to database table.
 function insertLightCycle(data) {
@@ -63,22 +72,10 @@ function resetDB(vegDaysCurrent) {
         tr.run("DELETE FROM LightCycle;");
         date = new Date();
         date = date.setDate(date.getDate() - vegDaysCurrent);
-       tr.run("INSERT INTO LightCycle VALUES (30, " + vegDaysCurrent + ", 30, 0," + date + ");")
+        tr.run("INSERT INTO LightCycle VALUES (30, " + vegDaysCurrent + ", 30, 0," + date + ");")
         tr.commit(function (err) {
             if (err) return console.log("Sad panda :-( commit() failed.", err);
             console.log("Reset LightCycle Table");
-        });
-    });
-}
-function insertIntegerTransaction(callback) {
-    //console.log('INT ', integer);
-    db.beginTransaction(function (err, tr) {
-        tr.exec("INSERT INTO data (t) VALUES ('" + (integer++) + "')", function (err) {
-            if (err) return console.log(err);
-            tr.commit(function (err) {
-                //console.log('INT done', integer);
-                callback(err);
-            });
         });
     });
 }
@@ -110,7 +107,6 @@ function lastTempHumid(callback) {
         data = {
             TempHumid: rows
         }
-        //console.log(data);
         callback(data);
     }); 
 }
@@ -189,9 +185,13 @@ var server = http.createServer(
 	        }
 	        // Test to see if it's a request for current temperature   
 	        if (pathfile == '/temperature_now.json') {
+	            //
+	            //getPlotData(data, function (data) {
+	            //    response.writeHead(200, { "Content-type": "application/json" });
+	            //    response.end(JSON.stringify(data), "ascii");
+	            //});
 	            lastTempHumid(function (data) {
 	                readLightCycle(data, function (data) {
-	                    //console.log('test');
 	                    response.writeHead(200, { "Content-type": "application/json" });
 	                    response.end(JSON.stringify(data), "ascii");
 	                });
@@ -255,6 +255,12 @@ var server = http.createServer(
 	    }
 	}
 );
+
+// Start temperature logging (every 5 min).
+var msecs = 2000; // log interval duration in milliseconds
+logTemp(msecs);
+console.log('Server is logging to database at ' + msecs + 'ms intervals');
+
 // Enable server
 server.listen(8080);
 // Log message
